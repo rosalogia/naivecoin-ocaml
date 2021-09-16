@@ -1,0 +1,4 @@
+(library
+ (name naivecoin)
+ (libraries sha dream yojson)
+ (preprocess (staged_pps ppx_import lwt_ppx ppx_yojson_conv)))

@@ -1,0 +1,4 @@
+(executable
+ (public_name naivecoin)
+ (name main)
+ (libraries naivecoin sha dream))
