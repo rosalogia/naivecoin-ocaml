@@ -10,79 +10,101 @@ type block =
     | Block of
         { index: int
         ; hash: string
-        ; previous_hash: string
+        ; previous: block
         ; timestamp: timestamp
         ; data: string
         }
     [@@deriving yojson]
 
-type t = block list [@@deriving yojson]
+(* Set of accessor functions for common properties
+ * of both types of blocks. Feel free to let me know
+ * how you feel about this sort of thing. It seems to
+ * reduce a lot of code repetition later on, but the
+ * definitions themselves of course involve a lot of
+ * repetition. If this is at all useful anywhere else,
+ * maybe a ppx_deriving would be interesting or useful? *)
+let index_of block =
+    match block with
+    | GenesisBlock b -> b.index
+    | Block b -> b.index
 
-let hash_of i t p d =
-    (match p with
-    | Some previous_hash -> 
-        (string_of_int i) ^ (previous_hash) ^ (Unix.mktime t |> fst |> string_of_float) ^ d
-    | None -> 
-        (string_of_int i) ^ (Unix.mktime t |> fst |> string_of_float) ^ d)
+let hash_of block =
+    match block with
+    | GenesisBlock b -> b.hash
+    | Block b -> b.hash
+
+let timestamp_of block =
+    match block with
+    | GenesisBlock b -> b.timestamp
+    | Block b -> b.timestamp
+
+let data_of block =
+    match block with
+    | GenesisBlock b -> b.data
+    | Block b -> b.data
+
+let previous_hash_of block =
+    match block with
+    | GenesisBlock _    ->  failwith "Error: tried to obtain previous hash of genesis block"
+    | Block b           ->  hash_of b.previous 
+
+let length chain =
+    let rec aux c' t =
+        match c' with
+        | GenesisBlock _ -> t + 1
+        | Block b -> aux b.previous (t + 1) in
+    aux chain 0
+
+let hash_block index timestamp ?(previous_hash = "") data =
+    (* We collect the various components of the block into a string list
+     * then concatenate the resulting strings before hashing the result. *)
+    [ string_of_int index
+    ; previous_hash
+    ; Unix.mktime timestamp
+        |> fst
+        |> string_of_float
+    ; data ]
+    |> String.concat ""
     |> Sha256.string
     |> Sha256.to_hex
 
-let new_block d p =
-    let time =
+let add data previous =
+    let timestamp =
         Unix.time ()
         |> Unix.gmtime in
-    let (index, previous_hash) =
-        match p with
-        | Some (GenesisBlock b) -> (1, Some b.hash)
-        | Some (Block b) -> (b.index + 1, Some b.hash)
-        | None -> (0, None) in
-    match previous_hash with
-    | None ->
-            GenesisBlock
-                { index = index
-                ; hash = hash_of 0 time None d
-                ; timestamp = time
-                ; data = d
-                }
-    | Some h ->
-            Block
-                { index = index
-                ; hash = hash_of index time previous_hash d
-                ; previous_hash = h
-                ; timestamp = time
-                ; data = d
-                }
+    let index = (index_of previous) + 1 in
+    Block
+        { index
+        ; hash = hash_block index timestamp ~previous_hash:(hash_of previous) data
+        ; previous
+        ; timestamp
+        ; data
+        }
 
-let add d c =
-    match c with
-    | [] -> [new_block d None]
-    | [GenesisBlock b] -> (new_block d (Some (GenesisBlock b))) :: c
-    | Block b :: _ -> (new_block d (Some (Block b))) :: c
-    | _ -> c
+let validate_top chain =
+    match chain with
+    | GenesisBlock _ -> true
+    | Block b ->
+            let previous_hash = previous_hash_of chain in
+            let computed_hash = hash_block b.index b.timestamp ~previous_hash b.data in
+            let (previous_index) =
+                match b.previous with
+                | GenesisBlock p -> p.index
+                | Block p -> p.index in
+                
+            b.index = previous_index + 1
+            && computed_hash = b.hash
 
-let validate_top c =
-    match c with
-    | [GenesisBlock _] -> true
-    | Block b :: previous :: _ ->
-            let (previous_index, previous_hash) =
-                match previous with
-                | GenesisBlock p -> p.index, p.hash
-                | Block p -> p.index, p.hash in
-            [
-                b.index = previous_index + 1;
-                b.previous_hash = previous_hash;
-                (hash_of b.index b.timestamp (Some b.previous_hash) b.data) = b.hash
-            ] |> List.for_all ((=) true)
-    | _ -> false
+let validate_chain chain =
+    let rec aux chain' result =
+        match (chain', result) with
+        | (_, false) -> false
+        | (GenesisBlock _, _) -> true 
+        | (Block b, _) -> aux b.previous (validate_top chain') in
+    aux chain true
 
-let rec validate_chain c =
-    match c with
-    | _ :: t -> if validate_top c then validate_chain t else false
-    | _ -> false
-
-let replace n c =
-    if List.length n > List.length c && validate_chain n then
-        n
+let replace new_chain chain =
+    if length new_chain > length chain && validate_chain new_chain then
+        new_chain
     else
-        c
-
+        chain
