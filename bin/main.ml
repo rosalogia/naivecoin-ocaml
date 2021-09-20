@@ -4,4 +4,4 @@ let () =
     Blockchain.init "a"
     |> Blockchain.add "b"
     |> Blockchain.add "c"
-    |> Networking.init_server 5000
+    |> (fun c -> Networking.init_server { peers = []; chain = c } 5000)
