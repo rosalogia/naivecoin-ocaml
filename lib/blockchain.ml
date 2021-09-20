@@ -48,12 +48,7 @@ let previous_hash_of block =
     | GenesisBlock _    ->  failwith "Error: tried to obtain previous hash of genesis block"
     | Block b           ->  hash_of b.previous 
 
-let length chain =
-    let rec aux c' t =
-        match c' with
-        | GenesisBlock _ -> t + 1
-        | Block b -> aux b.previous (t + 1) in
-    aux chain 0
+let length = index_of
 
 let hash_block index timestamp ?(previous_hash = "") data =
     (* We collect the various components of the block into a string list
@@ -67,6 +62,17 @@ let hash_block index timestamp ?(previous_hash = "") data =
     |> String.concat ""
     |> Sha256.string
     |> Sha256.to_hex
+
+let init data =
+    let timestamp =
+        Unix.time ()
+        |> Unix.gmtime in
+    GenesisBlock
+        { index = 0
+        ; hash = hash_block 0 timestamp data
+        ; timestamp
+        ; data
+        }
 
 let add data previous =
     let timestamp =
